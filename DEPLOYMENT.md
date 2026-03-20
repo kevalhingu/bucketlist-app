@@ -308,7 +308,7 @@ A task definition tells ECS what container to run and how.
        - Port range: `3000`
        - Source: select `bucketlist-alb-sg` (the ALB security group you created in Part 7)
 
-     ![Select bucketlist-alb-sg as the source for the inbound rule](./selectsg.png)
+     ![Select bucketlist-alb-sg as the source for the inbound rule](public/selectsg.png)
 
      - Click **Save**
    - Public IP: **Turned on** — this is important, the container needs it to pull the image from ECR
