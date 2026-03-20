@@ -10,6 +10,108 @@ By the end you will have:
 
 ---
 
+## Prerequisites — AWS CLI Setup
+
+You need the AWS CLI installed and configured before starting Part 1. It is used in Part 4 to authenticate Docker with ECR and push your image.
+
+**Already have AWS CLI installed?** Run this to confirm:
+
+```bash
+aws --version
+```
+
+If you see a version number like `aws-cli/2.x.x`, you are good — skip to [Configure AWS CLI](#configure-aws-cli) below.
+
+---
+
+### Install AWS CLI
+
+**Windows:**
+1. Download the installer from: [https://awscli.amazonaws.com/AWSCLIV2.msi](https://awscli.amazonaws.com/AWSCLIV2.msi)
+2. Run the `.msi` file and follow the installer steps
+3. Open a new terminal (Command Prompt or Git Bash) and run `aws --version` to confirm
+
+**Mac:**
+```bash
+curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg"
+sudo installer -pkg AWSCLIV2.pkg -target /
+```
+
+**Linux:**
+```bash
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+```
+
+After installing, open a new terminal and verify:
+```bash
+aws --version
+# Expected output: aws-cli/2.x.x Python/3.x.x ...
+```
+
+---
+
+### Find Your AWS Access Keys
+
+You need an **Access Key ID** and **Secret Access Key** to configure the CLI. Here is where to get them:
+
+1. Log in to the AWS Console: [https://console.aws.amazon.com](https://console.aws.amazon.com)
+2. Click your account name in the top-right corner
+3. Click **Security credentials**
+4. Scroll down to the **Access keys** section
+5. Click **Create access key**
+6. Select **Command Line Interface (CLI)** as the use case and click **Next**
+7. Click **Create access key**
+8. **Important:** Copy both the **Access key ID** and **Secret access key** now — you cannot view the secret key again after closing this page. Save them somewhere safe.
+
+> If you are using an IAM user (not the root account), your admin needs to grant you the necessary permissions. For this workshop you need at minimum: `AmazonEC2ContainerRegistryFullAccess`.
+
+---
+
+### Configure AWS CLI
+
+Run the following command and fill in your details when prompted:
+
+```bash
+aws configure
+```
+
+It will ask for four things:
+
+```
+AWS Access Key ID [None]: YOUR_ACCESS_KEY_ID
+AWS Secret Access Key [None]: YOUR_SECRET_ACCESS_KEY
+Default region name [None]: us-east-1
+Default output format [None]: json
+```
+
+- For region, use the same region you will deploy to (e.g. `us-east-1`)
+- For output format, `json` is fine
+
+---
+
+### Verify the CLI is Working
+
+Run this command — it should return your account info without any errors:
+
+```bash
+aws sts get-caller-identity
+```
+
+Expected output:
+```json
+{
+    "UserId": "AIDAXXXXXXXXXXXXXXXXX",
+    "Account": "123456789012",
+    "Arn": "arn:aws:iam::123456789012:user/your-username"
+}
+```
+
+If you see this, your CLI is configured correctly and you are ready to start.
+
+---
+
 ## What we are building
 
 ```
@@ -71,42 +173,25 @@ ECR is where you store your Docker image on AWS.
 
 ## Part 4 — Build and Push the Docker Image
 
-Do this on your local machine in a terminal.
+AWS ECR already provides you the exact commands you need — no need to write them manually.
 
-### 4.1 — Authenticate Docker with ECR
+> Tip: If you are on Windows, use **Git Bash** for this part. The ECR login command uses a pipe (`|`) which does not work correctly in Command Prompt or PowerShell. Git Bash handles it perfectly.
 
-Replace `YOUR_ACCOUNT_ID` and `YOUR_REGION` with your values:
+### 4.1 — Get the push commands from ECR
 
-```bash
-aws ecr get-login-password --region YOUR_REGION | docker login --username AWS --password-stdin YOUR_ACCOUNT_ID.dkr.ecr.YOUR_REGION.amazonaws.com
-```
+1. Go to **ECR** in the AWS Console
+2. Click on your `bucketlist-app` repository
+3. Click the **View push commands** button (top-right of the page)
+4. A popup will appear with 4 commands already filled in with your account ID and region:
+   - Authenticate Docker with ECR
+   - Build the image
+   - Tag the image
+   - Push the image
+5. Open **Git Bash** (or your terminal on Mac/Linux), navigate to the project folder, and run each command one by one in order
 
-You should see: `Login Succeeded`
+> The build step takes 2-3 minutes the first time.
 
-### 4.2 — Build the image
-
-Navigate into the project folder:
-
-```bash
-cd bucketlist-app
-docker build -t bucketlist-app .
-```
-
-This takes 2-3 minutes the first time.
-
-### 4.3 — Tag the image
-
-```bash
-docker tag bucketlist-app:latest YOUR_ACCOUNT_ID.dkr.ecr.YOUR_REGION.amazonaws.com/bucketlist-app:latest
-```
-
-### 4.4 — Push the image
-
-```bash
-docker push YOUR_ACCOUNT_ID.dkr.ecr.YOUR_REGION.amazonaws.com/bucketlist-app:latest
-```
-
-Once done, go back to the ECR console, click your repository, and you should see the image listed there with the `latest` tag.
+Once done, close the popup and you should see the image listed in your repository with the `latest` tag.
 
 ---
 
@@ -222,6 +307,9 @@ A task definition tells ECS what container to run and how.
        - Type: `Custom TCP`
        - Port range: `3000`
        - Source: select `bucketlist-alb-sg` (the ALB security group you created in Part 7)
+
+     ![Select bucketlist-alb-sg as the source for the inbound rule](./selectsg.png)
+
      - Click **Save**
    - Public IP: **Turned on** — this is important, the container needs it to pull the image from ECR
 7. Scroll down to **Load balancing**:
