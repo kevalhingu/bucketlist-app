@@ -27,11 +27,8 @@ Browser → Load Balancer (port 80) → ECS Fargate Container (port 3000) → Dy
    - Table name: `BucketListGoals`
    - Partition key: `goalId`
    - Partition key type: **String**
-5. Scroll down to **Table settings** — select **Customize settings**
-6. Under **Read/write capacity settings** select **On-demand**
-7. Leave everything else as default
-8. Scroll to the bottom and click **Create table**
-9. Wait until the table status shows **Active** (takes about 30 seconds)
+5. Scroll to the bottom and click **Create table**
+6. Wait until the table status shows **Active** (takes about 30 seconds)
 
 ---
 
@@ -177,7 +174,7 @@ A task definition tells ECS what container to run and how.
    - Add an inbound rule:
      - Type: `HTTP`
      - Port: `80`
-     - Source: `0.0.0.0/0`
+     - Source: `Anywhere-IPv4`
    - Click **Create security group**
    - Go back to the load balancer tab and select `bucketlist-alb-sg`
    - Remove the default security group if it was auto-selected
@@ -206,31 +203,38 @@ A task definition tells ECS what container to run and how.
 4. Under **Environment**:
    - Compute options: **Launch type**
    - Launch type: **FARGATE**
+   - Platform version: **LATEST**
 5. Under **Deployment configuration**:
    - Application type: **Service**
-   - Family: select `bucketlist-task`
+   - Task definition Family: select `bucketlist-task`
    - Revision: select **LATEST**
    - Service name: `bucketlist-service`
+   - Scheduling strategy: **Replica**
    - Desired tasks: `1`
+   
 6. Scroll down to **Networking**:
    - VPC: select your default VPC
-   - Subnets: select all available subnets
-   - Security group: click **Create a new security group**
-     - Name: `bucketlist-ecs-sg`
+   - Subnets: select all available subnets (check all of them)
+   - Security groups: click **Create a new security group**
+     - Security group name: `bucketlist-ecs-sg`
      - Description: `Allow traffic from ALB`
      - Inbound rule:
        - Type: `Custom TCP`
-       - Port: `3000`
-       - Source: select `bucketlist-alb-sg` (the ALB security group)
-   - Public IP: **Turn on** (so the container can pull the image from ECR)
+       - Port range: `3000`
+       - Source: select `bucketlist-alb-sg` (the ALB security group you created in Part 7)
+     - Click **Save**
+   - Public IP: **Turned on** — this is important, the container needs it to pull the image from ECR
 7. Scroll down to **Load balancing**:
    - Load balancer type: **Application Load Balancer**
+   - Select **Use an existing load balancer**
    - Load balancer: select `bucketlist-alb`
-   - Container to load balance: select `bucketlist-app 3000:3000`
-   - Listener: select the existing `80:HTTP` listener
-   - Target group: select `bucketlist-tg`
+   - Under **Listener**: select **Use an existing listener** → choose `80:HTTP`
+   - Under **Target group**: select **Use an existing target group** → choose `bucketlist-tg`
+   - Health check grace period: `30` seconds
 8. Click **Create**
-9. Wait for the service to show **1/1 tasks running** (takes 1-2 minutes)
+9. Wait for the deployment status to show **Succeeded** — this can take anywhere from **5 to 8 minutes**. Do not open the app URL until you see Succeeded. If you open it before the deployment completes you will get a 503 error because the container is not ready yet.
+   - You can watch progress by clicking the **Deployments** tab inside the service — wait until it says **Succeeded**
+   - You can also click the **Tasks** tab and watch the task go from `PROVISIONING → PENDING → RUNNING`
 
 ---
 
@@ -282,6 +286,18 @@ If you see the item there, everything is working end to end.
 **502 Bad Gateway from the Load Balancer**
 - The container might still be starting up, wait 1-2 minutes and refresh
 - Check that the target group health check is passing: EC2 → Target Groups → bucketlist-tg → Targets tab
+- If targets show **unhealthy**, the container is not responding on port 3000 — check ECS task logs
+
+**503 Service Temporarily Unavailable**
+- This means the Load Balancer has no healthy targets to send traffic to
+- Go to **EC2** → **Target Groups** → click `bucketlist-tg` → click the **Targets** tab
+- If no targets are registered or all show **unhealthy**, the ECS service hasn't connected to the target group yet
+- Fix checklist:
+  1. Make sure the ECS service selected the correct target group (`bucketlist-tg`) during creation
+  2. Make sure the ECS security group (`bucketlist-ecs-sg`) allows inbound TCP on port `3000` from `bucketlist-alb-sg`
+  3. Make sure **Public IP is turned on** in the ECS service networking settings
+  4. Go to ECS → your service → Tasks tab → click the running task → check the logs for errors
+  5. Wait 2-3 minutes after the task starts — the health check needs a few passes before the target is marked healthy
 
 **Cannot connect to DynamoDB**
 - Make sure the Task Role `BucketListECSTaskRole` is set in the task definition
