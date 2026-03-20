@@ -1,36 +1,200 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BucketList – Life Goals Tracker
 
-## Getting Started
+A hands-on workshop project for learning AWS services. It's a simple web app where you can add and track your life goals. We use it to learn how to run a containerized app on AWS using ECS, ECR, DynamoDB, and a Load Balancer.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Prerequisites
+
+Before you start, make sure you have the following ready:
+
+- An AWS account
+- AWS CLI installed and configured (`aws configure`)
+- Node.js 18+ installed
+- Docker Desktop installed and running
+- A DynamoDB table created (see Step 1 below)
+- Git installed
+
+---
+
+## What this app does
+
+- Add life goals (travel, skills, career, etc.)
+- Track their status (Planned, In Progress, Completed)
+- Store everything in DynamoDB
+- Run inside a Docker container
+
+---
+
+## Project Structure
+
+```
+app/
+  page.tsx                  # Landing page
+  dashboard/page.tsx        # Goals dashboard
+  api/goals/                # API endpoints (GET, POST, PATCH, DELETE)
+components/                 # UI components (cards, forms, modals)
+lib/
+  dynamodb.ts               # DynamoDB connection
+  goals.ts                  # Database operations
+  types.ts                  # Data types
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Step 1 — Create the DynamoDB Table
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Go to AWS Console → DynamoDB → Create Table
 
-## Learn More
+- Table name: `BucketListGoals`
+- Partition key: `goalId` (String)
+- Leave everything else as default
 
-To learn more about Next.js, take a look at the following resources:
+Or using AWS CLI:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+aws dynamodb create-table \
+  --table-name BucketListGoals \
+  --attribute-definitions AttributeName=goalId,AttributeType=S \
+  --key-schema AttributeName=goalId,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST \
+  --region us-east-1
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## Step 2 — Run Locally
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+# Install dependencies
+npm install
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# Create your env file
+cp .env.example .env.local
+# Fill in your AWS credentials in .env.local
+
+# Start the app
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000)
+
+---
+
+## Environment Variables
+
+```env
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your_key
+AWS_SECRET_ACCESS_KEY=your_secret
+DYNAMODB_TABLE=BucketListGoals
+```
+
+> When running on ECS, you don't need the keys — you use an IAM Role instead.
+
+---
+
+## Step 3 — Build the Docker Image
+
+```bash
+docker build -t bucketlist-app .
+```
+
+### How the Dockerfile works
+
+The Dockerfile has 3 stages. This is called a **multi-stage build**.
+
+```
+Stage 1 (deps)     → installs only production packages
+Stage 2 (builder)  → builds the Next.js app
+Stage 3 (runner)   → copies only the built output, nothing else
+```
+
+Why 3 stages? So the final image is small and clean. It doesn't include source code or dev tools — only what's needed to run the app. This is a best practice for production containers.
+
+### Run locally with Docker
+
+```bash
+docker run -p 3000:3000 --env-file .env.local bucketlist-app
+```
+
+---
+
+## Step 4 — Push to ECR
+
+ECR is AWS's container registry — like Docker Hub but on AWS.
+
+```bash
+# Login to ECR
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
+
+# Create a repository
+aws ecr create-repository --repository-name bucketlist-app --region us-east-1
+
+# Tag and push your image
+docker tag bucketlist-app:latest YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/bucketlist-app:latest
+docker push YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/bucketlist-app:latest
+```
+
+---
+
+## Step 5 — Deploy on ECS
+
+### Create an IAM Task Role
+
+This lets the container talk to DynamoDB without needing any keys.
+
+Attach this permission to the role:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "dynamodb:PutItem",
+    "dynamodb:GetItem",
+    "dynamodb:UpdateItem",
+    "dynamodb:DeleteItem",
+    "dynamodb:Scan"
+  ],
+  "Resource": "arn:aws:dynamodb:us-east-1:YOUR_ACCOUNT_ID:table/BucketListGoals"
+}
+```
+
+### ECS Task Definition
+
+- Use the ECR image you pushed
+- Set the Task Role to the one you created above
+- Add these environment variables (no keys needed):
+
+```
+AWS_REGION = us-east-1
+DYNAMODB_TABLE = BucketListGoals
+```
+
+- Container port: `3000`
+
+### Create ECS Service + Load Balancer
+
+- Create an ECS cluster (Fargate)
+- Create a service using your task definition
+- Attach an Application Load Balancer on port 80
+- Point it to your container on port 3000
+
+### Final architecture
+
+```
+Browser → Load Balancer → ECS Container (port 3000) → DynamoDB
+```
+
+---
+
+## AWS Services used in this workshop
+
+| Service | What it does here |
+|---|---|
+| DynamoDB | Stores the goals |
+| ECR | Stores the Docker image |
+| ECS Fargate | Runs the container |
+| ALB | Routes traffic to the container |
+| IAM | Gives the container permission to use DynamoDB |
